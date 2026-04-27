@@ -1,86 +1,308 @@
-name: Run Web Proxy
+name: Web Proxy Server
 on:
   workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to browse'
+        required: true
+        default: 'https://web.telegram.org/k/'
   push:
     branches: [ main ]
 
 jobs:
-  proxy:
+  proxy-server:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           npm init -y
-          npm install express http-proxy-middleware puppeteer
+          npm install express http-proxy-middleware
           
-      - name: Start Proxy Server
+      - name: Create Proxy Server
         run: |
-          cat > server.js << 'EOF'
+          cat > server.js << 'ENDOFFILE'
           const express = require('express');
-          const { createProxyMiddleware } = require('http-proxy-middleware');
+          const path = require('path');
           const app = express();
+          const PORT = 3000;
           
-          app.use('/', express.static('public'));
+          // Serve static files
+          app.use(express.static('public'));
           
-          app.use('/proxy', createProxyMiddleware({
-              target: 'https://web.telegram.org',
-              changeOrigin: true,
-              pathRewrite: {'^/proxy': ''},
-              onProxyReq: (proxyReq) => {
-                  proxyReq.setHeader('Origin', 'https://web.telegram.org');
-                  proxyReq.setHeader('Referer', 'https://web.telegram.org/');
-              }
-          }));
+          // Main proxy page
+          app.get('/', (req, res) => {
+            res.sendFile(path.join(__dirname, 'public', 'index.html'));
+          });
           
-          app.listen(3000, () => console.log('Proxy running on 3000'));
-          EOF
+          app.listen(PORT, () => {
+            console.log(`Proxy server running on port ${PORT}`);
+            console.log(`Local URL: http://localhost:${PORT}`);
+          });
+          ENDOFFILE
           
-          mkdir public
-          cat > public/index.html << 'EOF'
+          mkdir -p public
+          
+      - name: Create Web Interface
+        run: |
+          cat > public/index.html << 'ENDOFFILE'
           <!DOCTYPE html>
-          <html>
-          <head><title>GitHub Internal Proxy</title></head>
-          <body>
-              <h1>Proxy via GitHub Actions</h1>
-              <input id="url" type="text" placeholder="Enter URL" style="width:300px">
-              <button onclick="load()">Go</button>
-              <iframe id="frame" style="width:100%;height:500px"></iframe>
-              <script>
-                  function load() {
-                      let url = document.getElementById('url').value;
-                      document.getElementById('frame').src = '/proxy/' + url;
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>GitHub Actions Proxy</title>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      min-height: 100vh;
+                      color: white;
                   }
+                  .container {
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      padding: 20px;
+                  }
+                  .header {
+                      text-align: center;
+                      padding: 40px 0;
+                  }
+                  .header h1 {
+                      font-size: 2.5em;
+                      margin-bottom: 10px;
+                      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+                  }
+                  .proxy-form {
+                      background: white;
+                      border-radius: 15px;
+                      padding: 30px;
+                      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                      margin-bottom: 30px;
+                  }
+                  .url-input-group {
+                      display: flex;
+                      gap: 10px;
+                      margin-bottom: 20px;
+                  }
+                  .url-input {
+                      flex: 1;
+                      padding: 15px;
+                      border: 2px solid #e0e0e0;
+                      border-radius: 10px;
+                      font-size: 16px;
+                      outline: none;
+                      transition: border-color 0.3s;
+                  }
+                  .url-input:focus {
+                      border-color: #667eea;
+                  }
+                  .go-btn {
+                      padding: 15px 30px;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white;
+                      border: none;
+                      border-radius: 10px;
+                      font-size: 16px;
+                      cursor: pointer;
+                      transition: transform 0.2s;
+                  }
+                  .go-btn:hover {
+                      transform: translateY(-2px);
+                  }
+                  .services {
+                      display: flex;
+                      gap: 10px;
+                      flex-wrap: wrap;
+                  }
+                  .service-btn {
+                      padding: 10px 20px;
+                      background: #f0f0f0;
+                      color: #333;
+                      border: none;
+                      border-radius: 8px;
+                      cursor: pointer;
+                      transition: all 0.3s;
+                      font-size: 14px;
+                  }
+                  .service-btn:hover {
+                      background: #667eea;
+                      color: white;
+                  }
+                  .frame-container {
+                      background: white;
+                      border-radius: 15px;
+                      overflow: hidden;
+                      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                  }
+                  iframe {
+                      width: 100%;
+                      height: 600px;
+                      border: none;
+                  }
+                  .status {
+                      text-align: center;
+                      padding: 20px;
+                      font-size: 14px;
+                      opacity: 0.8;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="header">
+                      <h1>🌐 GitHub Actions Proxy</h1>
+                      <p>Browse any website through GitHub infrastructure</p>
+                  </div>
+                  
+                  <div class="proxy-form">
+                      <div class="url-input-group">
+                          <input type="url" id="urlInput" class="url-input" placeholder="Enter website URL..." value="https://web.telegram.org/k/">
+                          <button class="go-btn" onclick="loadURL()">Browse</button>
+                      </div>
+                      <div class="services">
+                          <button class="service-btn" onclick="quickAccess('telegram')">Telegram</button>
+                          <button class="service-btn" onclick="quickAccess('youtube')">YouTube</button>
+                          <button class="service-btn" onclick="quickAccess('twitter')">Twitter</button>
+                          <button class="service-btn" onclick="quickAccess('reddit')">Reddit</button>
+                          <button class="service-btn" onclick="quickAccess('wikipedia')">Wikipedia</button>
+                      </div>
+                  </div>
+                  
+                  <div class="frame-container">
+                      <iframe id="proxyFrame" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+                  </div>
+                  
+                  <div class="status" id="status">Ready to browse</div>
+              </div>
+              
+              <script>
+                  const proxyList = [
+                      'https://api.allorigins.win/raw?url=',
+                      'https://corsproxy.io/?',
+                      'https://api.codetabs.com/v1/proxy?quest=',
+                      'https://cors-anywhere.herokuapp.com/',
+                      'https://thingproxy.freeboard.io/fetch/'
+                  ];
+                  
+                  const services = {
+                      telegram: 'https://web.telegram.org/k/',
+                      youtube: 'https://www.youtube.com',
+                      twitter: 'https://mobile.twitter.com',
+                      reddit: 'https://old.reddit.com',
+                      wikipedia: 'https://en.m.wikipedia.org'
+                  };
+                  
+                  function quickAccess(service) {
+                      if (services[service]) {
+                          document.getElementById('urlInput').value = services[service];
+                          loadURL();
+                      }
+                  }
+                  
+                  async function loadURL() {
+                      let url = document.getElementById('urlInput').value;
+                      if (!url || url === 'https://') return;
+                      
+                      if (!url.startsWith('http')) {
+                          url = 'https://' + url;
+                      }
+                      
+                      updateStatus('Loading...');
+                      
+                      let success = false;
+                      
+                      for (let proxy of proxyList) {
+                          try {
+                              const proxyUrl = proxy + encodeURIComponent(url);
+                              const controller = new AbortController();
+                              const timeoutId = setTimeout(() => controller.abort(), 5000);
+                              
+                              const response = await fetch(proxyUrl, {
+                                  signal: controller.signal
+                              });
+                              
+                              clearTimeout(timeoutId);
+                              
+                              if (response.ok) {
+                                  const html = await response.text();
+                                  const blob = new Blob([html], { type: 'text/html' });
+                                  const blobUrl = URL.createObjectURL(blob);
+                                  
+                                  document.getElementById('proxyFrame').src = blobUrl;
+                                  updateStatus('Connected via ' + proxy.split('/')[2]);
+                                  success = true;
+                                  break;
+                              }
+                          } catch (e) {
+                              console.log('Proxy failed:', proxy, e.message);
+                              continue;
+                          }
+                      }
+                      
+                      if (!success) {
+                          // Direct try
+                          document.getElementById('proxyFrame').src = url;
+                          updateStatus('Trying direct connection...');
+                      }
+                  }
+                  
+                  function updateStatus(message) {
+                      document.getElementById('status').textContent = message;
+                  }
+                  
+                  document.getElementById('urlInput').addEventListener('keypress', function(e) {
+                      if (e.key === 'Enter') loadURL();
+                  });
               </script>
           </body>
           </html>
-          EOF
+          ENDOFFILE
           
+      - name: Start Server and Test
+        run: |
           node server.js &
-          sleep 5
-          curl http://localhost:3000
+          SERVER_PID=$!
+          sleep 3
           
-      - name: Install ngrok
+          # Test the server
+          curl http://localhost:3000 || echo "Server starting..."
+          
+          # Keep running for a while
+          sleep 30
+          kill $SERVER_PID
+          
+      - name: Save Output
         run: |
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt update
-          sudo apt install ngrok
+          # Save the HTML for viewing in repo
+          node -e "
+          const http = require('http');
+          const fs = require('fs');
           
-      - name: Expose proxy
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-        run: |
-          ngrok config add-authtoken $NGROK_AUTH_TOKEN
-          ngrok http 3000 --log=stdout &
-          sleep 5
-          curl http://localhost:4040/api/tunnels
+          http.get('http://localhost:3000', (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              fs.writeFileSync('proxy-interface.html', data);
+              console.log('Saved proxy interface');
+            });
+          });
+          "
           
-      - name: Keep alive
-        run: sleep 3600  # 1 ساعت فعال بمونه
+      - name: Deploy to Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
