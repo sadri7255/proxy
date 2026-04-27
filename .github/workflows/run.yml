@@ -1,0 +1,86 @@
+name: Run Web Proxy
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install express http-proxy-middleware puppeteer
+          
+      - name: Start Proxy Server
+        run: |
+          cat > server.js << 'EOF'
+          const express = require('express');
+          const { createProxyMiddleware } = require('http-proxy-middleware');
+          const app = express();
+          
+          app.use('/', express.static('public'));
+          
+          app.use('/proxy', createProxyMiddleware({
+              target: 'https://web.telegram.org',
+              changeOrigin: true,
+              pathRewrite: {'^/proxy': ''},
+              onProxyReq: (proxyReq) => {
+                  proxyReq.setHeader('Origin', 'https://web.telegram.org');
+                  proxyReq.setHeader('Referer', 'https://web.telegram.org/');
+              }
+          }));
+          
+          app.listen(3000, () => console.log('Proxy running on 3000'));
+          EOF
+          
+          mkdir public
+          cat > public/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head><title>GitHub Internal Proxy</title></head>
+          <body>
+              <h1>Proxy via GitHub Actions</h1>
+              <input id="url" type="text" placeholder="Enter URL" style="width:300px">
+              <button onclick="load()">Go</button>
+              <iframe id="frame" style="width:100%;height:500px"></iframe>
+              <script>
+                  function load() {
+                      let url = document.getElementById('url').value;
+                      document.getElementById('frame').src = '/proxy/' + url;
+                  }
+              </script>
+          </body>
+          </html>
+          EOF
+          
+          node server.js &
+          sleep 5
+          curl http://localhost:3000
+          
+      - name: Install ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update
+          sudo apt install ngrok
+          
+      - name: Expose proxy
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          ngrok config add-authtoken $NGROK_AUTH_TOKEN
+          ngrok http 3000 --log=stdout &
+          sleep 5
+          curl http://localhost:4040/api/tunnels
+          
+      - name: Keep alive
+        run: sleep 3600  # 1 ساعت فعال بمونه
